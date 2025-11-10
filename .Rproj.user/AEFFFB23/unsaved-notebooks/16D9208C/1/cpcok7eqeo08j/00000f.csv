@@ -1,0 +1,3 @@
+"0","sector_data %>%"
+"0","  group_by(symbol) %>%"
+"0","  summarise(start = min(date), end = max(date))"

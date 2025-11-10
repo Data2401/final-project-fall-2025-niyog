@@ -1,0 +1,7 @@
+"0",""
+"0","#Pandemic"
+"0","ggplot(covid, aes(x=date, y=cumulative_return, color=symbol)) +"
+"0","  geom_line() +"
+"0","  labs(title=""Sector Behavior During the COVID-19 Crash and Recovery (2019–2021)"","
+"0","       x=""Date"", y=""Cumulative Return"", color=""Sector"") +"
+"0","  theme_minimal()"
