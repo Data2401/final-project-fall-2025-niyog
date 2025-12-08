@@ -1,0 +1,244 @@
+---
+title: "Sector Rotation In the Stock Market"
+author: "Niyog"
+date: "2025-11-04"
+output: html_document
+---
+
+**Introduction**
+
+      We hear a lot about how money moves from one sector to another in the stock market. A lot of these movements happen before or after a market crash. In this project, I've tried to see how money has moved across different ETFs under S&P 500 starting from 2000(Dot Com Bubble Crash) until today. For that, we'll be looking at 11 ETFs that make up S&P and primarily at 5-6 ETFs that move market the most. I've used ticker symbols in my project. Below is the reference:
+     
+      | Symbol | Sector Name               
+|--------|----------------------------|
+| XLC    | Communication Services     |
+| XLY    | Consumer Discretionary     |
+| XLP    | Consumer Staples           |
+| XLE    | Energy                     |
+| XLF    | Financials                 |
+| XLV    | Healthcare                 |
+| XLI    | Industrials                |
+| XLK    | Technology                 |
+| XLB    | Materials                  |
+| XLRE   | Real Estate                |
+| XLU    | Utilities                  |
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse) #for data manipulation
+library(tidyquant) #to pull financial data from Yahoo Finance
+library(lubridate) # to handle dates
+library(zoo) #for rolling calculations
+```
+
+Even though I have included all 11 sectors, we’ll mostly focus on Technology, Financials, Energy, Consumer Discretionary, Healthcare, and Utilities since these sectors are the most influential in the market.
+
+Firstly, I will load the data for all S&P 500 sector ETFs from Yahoo Finance and save it under a new variable.
+Each ticker (like XLK, XLF, or XLE) represents one major sector of the S&P 500 (indexed in the table above).
+We’ll collect daily price data from 2000–2025.
+
+```{r load-data}
+# Reading sector ETF data from Yahoo Finance
+# Using tidyquant to pull multiple tickers at once
+
+etfs <- c("XLK","XLF","XLV","XLE","XLY","XLP","XLI","XLU","XLB","XLRE","XLC")
+
+sector_data <- tq_get(etfs,
+                      from = "2000-01-01",
+                      to   = "2025-12-31") %>%
+  group_by(symbol)
+
+glimpse(sector_data)
+unique(sector_data$symbol)
+
+```
+**Check for missing values**
+Let's check if there are any missing values.
+
+```{r check missing}
+#to check if there are any missing values in the dataset. 
+colSums(is.na(sector_data))
+
+```
+So that means there are no missing data. 
+
+**Primary ETFs**
+Using all 11 ETFs would clutter the graphs and make it difficult to get insights. That’s why I’ll only use 6 ETFs that are the most influential.
+
+```{r}
+primary_etfs <- c("XLK", "XLF", "XLE", "XLY", "XLV", "XLU")
+primary_data <- sector_data %>%
+  filter(symbol %in% primary_etfs)
+```
+
+
+**Extracting Key Columns**
+
+It’s not a good idea to keep all the variables as it doesn’t make our analysis efficient. That’s why I’ll only be using three variables. These should be enough to get what we want out of this dataset. The variables are:
+
+Symbol – the ticker symbol of the ETF
+
+Date – the date of the data
+
+Adjusted – the closing price of that day for the ETF. “Adjusted” refers to the price that has accounted for actions like stock splits, dividends and so on.
+
+```{r cleaning columns}
+primary_data <- primary_data %>%
+  select(symbol, date, adjusted)
+glimpse(primary_data)
+```
+**Creating a “Year” Column**
+
+I want to see how the ETFs have performed in and around major market movements. For that, we’ll need the yearly ETF data.
+
+```{r Year Column}
+library(lubridate)
+primary_data <- primary_data %>%
+  mutate(year = year(date))
+glimpse(primary_data)
+```
+Now we can easily group data by year later. 
+
+**Calculating Daily Returns**
+This step generates two new columns daily_return and cumulative_return. daily_return refers to day-to-day change in the prices and cumulative_return refers to thetotal increase/decrease in the ETFs from the beginning of the time period. This helps us measure volatility patterns of the ETFs and see their nature in and around major crashes.
+
+```{r daily-returns}
+primary_data <- primary_data %>%
+  group_by(symbol) %>%
+  arrange(date) %>%
+  mutate(daily_return = (adjusted - lag(adjusted)) / lag(adjusted), #(Today-Yesterday)/Yesterday
+         cumulative_return = (adjusted / first(adjusted)) - 1) #(Today/first day) - 1
+
+glimpse(primary_data)
+```
+This creates a new column **daily_return** and **cumulative_return** for each ETF.
+
+**Removing NA values**
+Since the first trading day for each ETF has no previous price to compare against, its daily_return value is NA. These rows do not contribute to our analysis so we remove them to keep the dataset clean.
+
+```{r Removing NA}
+primary_data <- primary_data %>%
+  drop_na(daily_return)
+glimpse(primary_data)
+
+```
+Now we can confirm that all NA values have been removed leaving us with a clean set of valid daily returns for analysis.
+
+**Let's see if each ETF has data for multiple years**
+```{r check years}
+primary_data %>%
+  group_by(symbol) %>%
+  summarise(start = min(date), end = max(date))
+glimpse(primary_data)
+```
+**Now everything looks good and the data’s all set. Time to start asking some questions.**
+
+  **1. How have different sectors performed over time?**
+
+```{r}
+sector_trend <- primary_data %>%
+  group_by(symbol) %>%
+  arrange(date) %>%
+  mutate(cumulative_return = (adjusted / first(adjusted)) - 1)
+
+ggplot(sector_trend, aes(x=date, y=cumulative_return, color=symbol)) +
+  geom_line() +
+  labs(title="Cumulative Sector Returns (2000–2025)",
+       y="Cumulative Return",
+       x="Year",
+       color="Sector") 
+```
+XLY(Consumer Discretionary) has outperformed the rest. Energy seems to be the most volatile ETF during unstable periods (like 2008, 2020) making it the best for short term trades. We can also see that technology has led the market since COVID and continues to do so until today. It’s clear that lockdown accelerated the growth of tech companies in the recent years.
+
+**2. Which sectors performed best and worst on a daily basis ?**
+
+```{r}
+#Calculating average daily return
+yearly_avg <- primary_data %>%
+  group_by(symbol, year) %>%
+  summarise(avg_return = mean(daily_return, na.rm = TRUE))
+
+ggplot(yearly_avg, aes(x = year, y = avg_return, fill = symbol)) +
+  geom_col(position="dodge") +
+  labs(title="Average Daily Returns by Sector", y="Avg Daily Returns (in decimals)") +
+  theme_minimal()
+
+```
+This chart compares the average yearly returns of all sectors from 2000 to 2025. We can see tech crashed the most during early 2000s. This was fueled by the dot com bubble which started late in the 90s.During the 2008 financial crisis, all the ETFs took a heavy blow and tech came out to be the ETF that recovered the hardest. From this chart, we can also draw a conclusion that after all major market crashes tech has led the recovery with energy following closely behind. Also, the inflation-led market crash of 22/23 saw Consumer Discretionary drop the most, further proving inflation’s role in the recent market crash.
+
+**3. How did sectors behave around major market events?**
+Major market events often reveal how different sectors respond to stress and recovery.
+Here, we examine sector trends around crises like the 2008 recession and the 2020 pandemic. 
+
+```{r}
+dotcom <- filter(primary_data, year >= 1999 & year <= 2002)
+crash2008 <- filter(primary_data, year >= 2007 & year <= 2009)
+covid <- filter(primary_data, year >= 2019 & year <= 2021)
+
+#dotcom crash
+ggplot(dotcom, aes(x=date, y=cumulative_return, color=symbol)) +
+  geom_line() +
+  labs(title="Sector Behavior During the Dot-com Crash (1999–2002)",
+       x="Date", y="Cumulative Return", color="Sector") 
+
+#financial crisis of 2008
+ggplot(crash2008, aes(x=date, y=cumulative_return, color=symbol)) +
+  geom_line() +
+  labs(title="Sector Behavior During the 2008 Financial Crisis (2007–2009)",
+       x="Date", y="Cumulative Return", color="Sector") 
+
+#Pandemic
+ggplot(covid, aes(x=date, y=cumulative_return, color=symbol)) +
+  geom_line() +
+  labs(title="Sector Behavior During the COVID-19 Crash and Recovery (2019–2021)",
+       x="Date", y="Cumulative Return", color="Sector") +
+  theme_minimal()
+
+
+
+```
+Dot-com Crash 
+During the dot-com crash, the Technology sector (XLK) suffered the sharpest decline as the bubble burst. This erased massive gains from the late 1990s. Most of the others remained fairly stable, with Financials being the safest. This shows that the Dot-com crash, as its name suggests, was driven by extreme hype around tech back then(We can see similar sentiment nowadays with AI but that’s outside the scope of this project.)
+
+2008 Financial Crisis
+The 2008 crisis caused sharp declines across nearly all sectors with Financials (XLF) among the hardest hit due to the banking collapse. Energy (XLE) initially outperformed but later dropped as demand weakened. 
+
+COVID Crash
+Crash The pandemic triggered a quick market crash in early 2020, followed by one of the fastest(literally V-shaped) recoveries in history. Technology (XLK) and Consumer Discretionary (XLY) led the rebound as digital adoption increased during the lockdown period. Energy (XLE) initially collapsed due to reduced demand but rebounded later when economic activities resumed. Defensive sectors like Utilities and Financials showed resilience throughout.
+
+**4. Are some sectors more volatile than others?**
+As we’ve seen in the previous graphs, different sectors move differently over time. In this graph we compare their volatility.
+
+```{r}
+#SD of daily returns
+volatility <- primary_data %>%
+  group_by(symbol, year) %>%
+  summarise(sd_return = sd(daily_return, na.rm = TRUE))
+
+#Boxplot
+ggplot(primary_data, aes(x=symbol, y=daily_return, fill=symbol)) +
+  geom_boxplot() +
+  labs(title="Sector Volatility (Daily Returns)", y="Daily Return") +
+  theme_minimal()
+
+```
+This chart shows how much each sector’s returns tend to swing on a daily basis. Energy sector seems to be the most volatile, making it the best sector to trade if you can time the market right. On the other end, Consumer Discretionary and Healthcare seem to be the most stable ones. Diversifying your investments accordingly can optimize your overall returns while keeping risk managable.
+
+**Average Daily return By Sector**
+
+```{r}
+avg_returns <- primary_data %>%
+  group_by(symbol) %>%
+  summarise(mean_daily_return = mean(daily_return, na.rm = TRUE)) #average in decimals
+
+avg_returns
+
+```
+
+These numbers represent average daily returns of the ETFs. Higher value means the sector grew slightly more per day over the time period. From the results, Consumer Discretionary and Energy have the highest average daily returns, meaning they generally showed the strongest daily performance among the sectors I analyzed. Healthcare and Utilities have the lowest averages, which makes sense because these sectors are usually more stable and defensive. Financials and Technology sit in the middle which shows a mix of higher growth but also periods of large drawdowns during major market events.
+
+
+**Conclusion**
+Overall, the analysis shows that while all sectors move with the broader market, their performance and risk levels vary significantly over time. Technology (XLK) and Consumer Discretionary (XLY) have been the strongest long term performers, driven by innovation and shifting consumer habits. Energy (XLE) and Financials (XLF) remain more volatile, often leading during expansions but falling harder in downturns. Defensive sectors like Utilities (XLU) and Consumer Staples (XLP) provide stability especially during market crises. Correlation patterns reveal that most sectors move together, though defensive ones offer partial diversification. In short, market leadership rotates between different sectors, but a balanced portfolio across growth and defensive areas helps smooth returns and reduce overall risk.
+
